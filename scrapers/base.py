@@ -2,41 +2,31 @@
 import os
 import asyncio
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional, Callable
 from playwright.async_api import async_playwright, BrowserContext, Page, Download
 
-# Paths
+DEBUG_URL = os.getenv("DEBUG_URL", "http://localhost:9222")
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "./data/downloads"))
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-USER_DATA_DIR = Path(os.getenv("USER_DATA_DIR", "./data/user_profile"))
-USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
 class BrowserSession:
-    def __init__(self, headless: bool = True):
-        self.headless = headless
-        self.pw = None
+    def __init__(self):
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
 
     async def __aenter__(self):
-        # ✅ Start Playwright and use persistent context
         self.pw = await async_playwright().start()
-        self.context = await self.pw.chromium.launch_persistent_context(
-            USER_DATA_DIR.as_posix(),
-            headless=self.headless,
-            accept_downloads=True,
-            args=["--no-sandbox"]
-        )
-        self.page = await self.context.new_page()
+        # ✅ Connect to your already open Chrome
+        self.browser = await self.pw.chromium.connect_over_cdp(DEBUG_URL)
+        self.context = self.browser.contexts[0]  # use the first Chrome profile context
+        self.page = self.context.pages[0]        # use the first open tab
+        await self.page.bring_to_front()
+        print("✅ Connected to your existing Chrome session.")
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        # ✅ Persistent context keeps cookies and localStorage
-        if self.context:
-            await self.context.close()
-        if self.pw:
-            await self.pw.stop()
+        # Don’t close the browser — you’re still using it manually
+        await self.pw.stop()
 
 
 async def click_and_download(page: Page, click_action: Callable[[], None], timeout_ms: int = 30000) -> Path:

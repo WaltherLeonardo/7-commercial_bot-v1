@@ -10,7 +10,7 @@ from db import DB_URL
 CLASSIC_URL = os.getenv("CLASSIC_URL")
 
 async def run_classic_export() -> Path:
-    async with BrowserSession(headless=False) as b:
+    async with BrowserSession() as b:
         page: Page = b.page
         await goto_and_wait_ready(page, CLASSIC_URL, selector_to_wait='text="COTIZADOR VEHICULAR - SAN ISIDRO"')
         await page.get_by_text("wrojas@panaautos.com.pe").click()
