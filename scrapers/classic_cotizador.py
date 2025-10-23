@@ -6,44 +6,56 @@ from playwright.async_api import Page
 from .base import BrowserSession, goto_and_wait_ready, click_and_download
 from sqlalchemy import create_engine
 from db import DB_URL
+from datetime import datetime
+
 
 CLASSIC_URL = os.getenv("CLASSIC_URL")
+day = str(datetime.now().day)  # used to click the day in the calendar
 
 async def run_classic_export() -> Path:
     async with BrowserSession() as b:
         page: Page = b.page
+        # home page
         await goto_and_wait_ready(page, CLASSIC_URL, selector_to_wait='text="COTIZADOR VEHICULAR - SAN ISIDRO"')
-        await page.get_by_text("wrojas@panaautos.com.pe").click()
-        print("😎😎 logging out")
-
-        await page.wait_for_selector('button:has-text("Ingresar")')
-        await page.get_by_text("Ingresar").click(force=True)        
-        print("😎😎 ask to log in")
-
-        await page.wait_for_selector('[data-test-id="wrojas@panaautos.com.pe"]')
-        await page.get_by_text("wrojas@panaautos.com.pe").click()
-        print("😎😎 logging in")
+        print("😎😎 we are in!")
         
-        # await page.wait_for_selector('text="Escribir contraseña"')
-        await page.wait_for_selector('input#i0118', state='visible')
-        await page.fill('input#i0118', 'CafeCaliente2626')
-        print("😎😎 password set")
+        # steps into reports page
+        card = page.locator("div.card-option", has_text="GESTION REPORTES")
+        await card.get_by_role("button", name="MOSTRAR").click()
+        print("😎😎 into reports")
 
-        await page.wait_for_selector('input#idSIButton9', state='visible')
-        await page.click('input#idSIButton9')
-        print("😎😎 enter")
+        # steps into commercial reports page
+        await page.get_by_role("tab", name="Comercial").click()
+        print("😎😎 into commercai reports")
 
-        print("😎😎")
+        # steps to open filters
+        await page.locator('a.p-accordion-header-link', has_text="COTIZACIONES").wait_for(state="visible")
+        await page.locator('a.p-accordion-header-link', has_text="COTIZACIONES").click()        
         
+        # Fecha Inicio = today
+        await page.locator('input[placeholder="Fecha de Inicio"] + button').click()
+        await page.locator(f'.p-datepicker:visible .p-datepicker-calendar td:has(span:has-text("{day}"))').click()
 
-        # Navigate to the report section and click the Excel export
-        await page.click('text="Reporte"')
-        await page.wait_for_selector('button:has-text("Excel")')
+        # Fecha Fin = today
+        await page.locator('input[placeholder="Fecha de Fin"] + button').click()
+        await page.locator(f'.p-datepicker:visible .p-datepicker-calendar td:has(span:has-text("{day}"))').click()
 
-        xlsx_path = await click_and_download(
-            page,
-            click_action=lambda: page.click('button:has-text("Excel")')
-        )
+        # Sociedad = "PANA AUTOS S.A."
+        sociedad_trigger = page.locator('label:has-text("Sociedad")').locator('xpath=../../..').locator('.p-dropdown-trigger')
+        await sociedad_trigger.click()
+        await page.get_by_role("option", name="PANA AUTOS S.A.").click()
+
+        # Open "Tipo Quote" dropdown
+        tipo_trigger = page.locator('label:has-text("Tipo")').locator('xpath=../../..').locator('.p-multiselect-trigger')
+        await tipo_trigger.click()
+        # Select RETAIL (scoped to the open panel)
+        panel = page.locator('.p-multiselect-panel:visible')
+        await panel.locator('li[aria-label="RETAIL"]').click()
+        # (optional) close the panel
+        await page.keyboard.press("Escape")
+        print("😎😎 ready to download")
+        
+        xlsx_path = await click_and_download(page, click_action=lambda: page.click('button:has-text("Excel")'))
         return xlsx_path
 
 def upsert_classic_to_sqlite(xlsx_path: Path):
