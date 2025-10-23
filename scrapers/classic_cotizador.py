@@ -61,10 +61,14 @@ async def run_classic_export() -> Path:
         print(f"😎😎 we get the path {xlsx_path}")
         return xlsx_path
                     
-def upsert_classic_to_sqlite(xlsx_path: Path):
-    df = pd.read_excel(xlsx_path)
+def upsert_classic_to_sqlite(csv_path: Path):
+    # Read the downloaded CSV instead of XLSX
+    df = pd.read_csv(csv_path, sep=";", encoding="utf-8-sig")
+
+    # Create SQLAlchemy connection
     engine = create_engine(DB_URL, future=True)
     with engine.begin() as conn:
+        # Append new rows to 'classic_cotizaciones' table
         df.to_sql("classic_cotizaciones", conn, if_exists="append", index=False)
 
 async def run():

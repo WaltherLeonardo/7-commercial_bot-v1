@@ -10,3 +10,4 @@ if __name__ == "__main__":
     # And DEBUG_URL is set in .env (or defaults to http://localhost:9222 in base.py)
     init_db()
     asyncio.run(run())
+    print("🦗🦗")
