@@ -55,9 +55,12 @@ async def run_classic_export() -> Path:
         await page.keyboard.press("Escape")
         print("😎😎 ready to download")
         
-        xlsx_path = await click_and_download(page, click_action=lambda: page.click('button:has-text("Excel")'))
-        return xlsx_path
+        btn = page.get_by_role("button", name="Descargar Reporte de Cotizaciones")
 
+        xlsx_path = await click_and_download(page, btn)
+        print(f"😎😎 we get the path {xlsx_path}")
+        return xlsx_path
+                    
 def upsert_classic_to_sqlite(xlsx_path: Path):
     df = pd.read_excel(xlsx_path)
     engine = create_engine(DB_URL, future=True)

@@ -10,6 +10,7 @@ env/
 .vscode/
 
 # Local data and outputs
+/data/downloads/*.csv
 /downloads/*.csv
 *.xlsx
 

@@ -29,13 +29,23 @@ class BrowserSession:
         await self.pw.stop()
 
 
-async def click_and_download(page: Page, click_action: Callable[[], None], timeout_ms: int = 30000) -> Path:
-    """Click something that triggers a file download and return saved file path."""
+async def click_and_download(page: Page, button, timeout_ms: int = 60000) -> Path:
+    """Click a button (Locator or callable) that triggers a download and return the saved path."""
+    # Normalize: allow passing a Locator OR a callable that performs the click
+    async def _do_click():
+        if callable(button):
+            await button()
+        else:
+            # it's a Locator
+            await button.wait_for(state="visible", timeout=timeout_ms)
+            await button.scroll_into_view_if_needed()
+            await button.click()
+
     async with page.expect_download(timeout=timeout_ms) as dl_info:
-        await click_action()
-    download: Download = await dl_info.value
-    suggested = download.suggested_filename
-    target = DOWNLOAD_DIR / suggested
+        await _do_click()
+
+    download = await dl_info.value
+    target = DOWNLOAD_DIR / download.suggested_filename
     await download.save_as(target.as_posix())
     return target
 
