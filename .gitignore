@@ -13,6 +13,10 @@ env/
 /data/downloads/*.csv
 /downloads/*.csv
 *.xlsx
+*.db
+*.db-shm
+*.db-wal
+
 
 # System files
 .DS_Store
