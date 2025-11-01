@@ -2,7 +2,7 @@
 import os
 import asyncio
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Iterable
 from playwright.async_api import async_playwright, BrowserContext, Page, Download
 
 DEBUG_URL = os.getenv("DEBUG_URL", "http://localhost:9222")
@@ -27,6 +27,73 @@ class BrowserSession:
     async def __aexit__(self, exc_type, exc, tb):
         # Don’t close the browser — you’re still using it manually
         await self.pw.stop()
+    
+    async def list_pages(self) -> None:
+        """Print index, title, and URL of all open tabs (for quick debugging)."""
+        pages: Iterable[Page] = self.context.pages
+        print("\n[TABS]")
+        for i, p in enumerate(pages):
+            try:
+                title = await p.title()
+                url = p.url
+                print(f"  #{i:02d} | {title} | {url}")
+            except Exception as e:
+                print(f"  #{i:02d} | <unavailable> ({e})")
+        print("[/TABS]\n")
+
+    async def _match_page(
+        self,
+        *,
+        title_contains: Optional[str] = None,
+        url_contains: Optional[str] = None,
+        index: Optional[int] = None,
+    ) -> Page:
+        """
+        Find a page by partial title, partial URL, or index.
+        - title_contains/url_contains are case-insensitive substrings
+        - index selects by order in context.pages
+        Raises ValueError if not found.
+        """
+        pages = self.context.pages
+
+        if index is not None:
+            try:
+                return pages[index]
+            except IndexError:
+                raise ValueError(f"No page at index {index}. Total open tabs: {len(pages)}")
+
+        def _contains(haystack: str, needle: str) -> bool:
+            return needle.lower() in haystack.lower()
+
+        for p in pages:
+            t = await p.title()
+            u = p.url
+            ok_title = _contains(t, title_contains) if title_contains else False
+            ok_url = _contains(u, url_contains) if url_contains else False
+            if (title_contains and ok_title) or (url_contains and ok_url):
+                return p
+
+        crit = f"title~'{title_contains}'" if title_contains else f"url~'{url_contains}'"
+        raise ValueError(f"No tab matched {crit}. Use list_pages() to see open tabs.")
+
+    async def select_page(
+        self,
+        *,
+        title_contains: Optional[str] = None,
+        url_contains: Optional[str] = None,
+        index: Optional[int] = None,
+        bring_to_front: bool = True,
+    ) -> Page:
+        """
+        Set self.page to the tab that matches the criteria and optionally bring it to front.
+        Returns the selected Page.
+        """
+        p = await self._match_page(title_contains=title_contains, url_contains=url_contains, index=index)
+        if bring_to_front:
+            await p.bring_to_front()
+        self.page = p
+        return p
+    
 
 
 async def click_and_download(page: Page, button, timeout_ms: int = 60000) -> Path:

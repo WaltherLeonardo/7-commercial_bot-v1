@@ -14,6 +14,8 @@ day = str(datetime.now().day)  # used to click the day in the calendar
 
 async def run_classic_export() -> Path:
     async with BrowserSession() as b:
+        await b.list_pages()  # 👀to see the pages
+        await b.select_page(title_contains="Cotizador Web - Vehicular")
         page: Page = b.page
         # home page
         await goto_and_wait_ready(page, CLASSIC_URL, selector_to_wait='text="COTIZADOR VEHICULAR - SAN ISIDRO"')

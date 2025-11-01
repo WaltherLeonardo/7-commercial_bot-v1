@@ -1,8 +1,10 @@
-# jobs/run_fast.py
-import asyncio
+import sys, os, asyncio
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from db import init_db
 from scrapers.fast_cotizador import run
 
 if __name__ == "__main__":
     init_db()
     asyncio.run(run())
+    print("🦗🦗")
