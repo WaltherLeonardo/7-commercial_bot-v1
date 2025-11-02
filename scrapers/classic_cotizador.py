@@ -12,6 +12,10 @@ from datetime import datetime
 CLASSIC_URL = os.getenv("CLASSIC_URL")
 day = str(datetime.now().day)  # used to click the day in the calendar
 
+async def _pick_day(page, day_num: int):
+    panel = page.locator(".p-datepicker:visible").first
+    await panel.locator(f'td:not(.p-datepicker-other-month) >> span:has-text("{day_num}")').first.click()
+
 async def run_classic_export() -> Path:
     async with BrowserSession() as b:
         await b.list_pages()  # 👀to see the pages
@@ -36,11 +40,11 @@ async def run_classic_export() -> Path:
         
         # Fecha Inicio = today
         await page.locator('input[placeholder="Fecha de Inicio"] + button').click()
-        await page.locator(f'.p-datepicker:visible .p-datepicker-calendar td:has(span:has-text("{day}"))').click()
+        await _pick_day(page, int(day))
 
         # Fecha Fin = today
         await page.locator('input[placeholder="Fecha de Fin"] + button').click()
-        await page.locator(f'.p-datepicker:visible .p-datepicker-calendar td:has(span:has-text("{day}"))').click()
+        await _pick_day(page, int(day))
 
         # Sociedad = "PANA AUTOS S.A."
         sociedad_trigger = page.locator('label:has-text("Sociedad")').locator('xpath=../../..').locator('.p-dropdown-trigger')

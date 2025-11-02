@@ -9,16 +9,41 @@ from db import DB_URL
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from urllib.parse import urljoin
+import re
 
 FAST_URL = os.getenv("FAST_URL")
 day = str(datetime.now().day)  # used to click the day in the calendar
+RANGE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}\s-\s\d{2}/\d{2}/\d{4}$")
+
+async def _get_range_input(page):
+    return page.locator('p-datepicker input[placeholder*="Rango de fechas"]').first
 
 def _fmt_input_date(d):       # -> "MM/DD/YYYY"
     return f"{d.month:02d}/{d.day:02d}/{d.year}"
 
+async def assert_range_selected(page, start_date, end_date, timeout=8000):
+    """
+    Confirms the date input shows exactly:
+      MM/DD/YYYY - MM/DD/YYYY
+    for the provided start_date and end_date.
+    """
+    expected = f"{_fmt_input_date(start_date)} - {_fmt_input_date(end_date)}"
+    inp = await _get_range_input(page)
+
+    end_ts = page.context._loop.time() + timeout / 1000
+    while page.context._loop.time() < end_ts:
+        try:
+            val = await inp.input_value()
+            if val and RANGE_RE.match(val) and val == expected:
+                return
+        except:
+            pass
+        await page.wait_for_timeout(150)
+
+    raise RuntimeError(f"El rango de fechas no quedó aplicado. Esperado: '{expected}'.")
+
 async def _open_range_datepicker(page):
-    # Open the "Rango de fechas" input
-    dp_input = page.locator('p-datepicker input[placeholder*="Rango de fechas"]')
+    dp_input = await _get_range_input(page)
     await dp_input.click()
     panel = page.get_by_role("dialog", name="Choose Date").last
     await panel.wait_for(state="visible")
@@ -26,82 +51,18 @@ async def _open_range_datepicker(page):
     return panel
 
 async def _click_day_by_date(panel, d):
-    # PrimeNG uses 0-based months in data-date (0..11)
+    # Your calendar uses 0-based month in data-date; keep a fallback
     zero_based = f'{d.year}-{d.month-1}-{d.day}'
-    one_based  = f'{d.year}-{d.month}-{d.day}'  # fallback, just in case
-
+    one_based  = f'{d.year}-{d.month}-{d.day}'
     loc = panel.locator(f'span.p-datepicker-day[data-date="{zero_based}"]')
     if await loc.count() == 0:
         loc = panel.locator(f'span.p-datepicker-day[data-date="{one_based}"]')
     await loc.first.wait_for(state="visible")
     await loc.first.click()
 
-async def _table_fingerprint(page, rows_to_check=8):
-    """
-    Build a small fingerprint from the first N rows using DOCUMENTO (col 2) and CLIENTE (col 5).
-    Adjust nth-child indexes if your table changes.
-    """
-    documentos = page.locator("table.p-datatable-table tbody tr td:nth-child(2)")
-    clientes   = page.locator("table.p-datatable-table tbody tr td:nth-child(5)")
-
-    n = min(rows_to_check, await documentos.count(), await clientes.count())
-    parts = []
-    for i in range(n):
-        doc = (await documentos.nth(i).text_content() or "").strip()
-        cli = (await clientes.nth(i).text_content() or "").strip()
-        parts.append(f"{i}:{doc}|{cli}")
-    return sha1("\n".join(parts).encode("utf-8")).hexdigest()
-
-
-async def wait_table_refreshed(page, start_date, end_date, timeout=20000):
-    """
-    Confirms:
-      1) date range input shows the selected range, and
-      2) DOCUMENTO/CLIENTE fingerprint of the first rows has changed.
-    """
-    # 1) Ensure datepicker dialog is gone
-    dlg = page.get_by_role("dialog", name="Choose Date").last
-    try:
-        await dlg.wait_for(state="hidden", timeout=3000)
-    except:
-        pass
-
-    # 2) Wait until range input reflects selection
-    expected = f"{_fmt_input_date(start_date)} - {_fmt_input_date(end_date)}"
-    dp_input = page.locator('p-datepicker input[placeholder*="Rango de fechas"]')
-    for _ in range(int(timeout/250)):
-        val = await dp_input.input_value()
-        if expected in val:
-            break
-        await page.wait_for_timeout(250)
-    else:
-        raise TimeoutError(f"Date range input did not update to '{expected}'")
-
-    # 3) If overlay exists, use it as a quick path
-    overlay = page.locator(".p-datatable-loading-overlay, .p-datatable-loading-icon")
-    try:
-        await overlay.wait_for(state="visible", timeout=1500)
-        await overlay.wait_for(state="hidden", timeout=timeout)
-        return
-    except:
-        pass
-
-    # 4) Fingerprint change on DOCUMENTO/CLIENTE
-    rows = page.locator("table.p-datatable-table tbody tr")
-    await rows.first.wait_for(timeout=timeout)  # ensure at least 1 row
-
-    baseline = await _table_fingerprint(page)
-    for _ in range(int(timeout/300)):
-        cur = await _table_fingerprint(page)
-        if cur != baseline:
-            # print("✅ Table fingerprint changed.")
-            return
-        await page.wait_for_timeout(300)
-
-    raise TimeoutError("Table content (DOCUMENTO/CLIENTE) did not change after range selection.")
-
 async def select_date_range_today_to_tomorrow(page):
-    tz = timezone(timedelta(hours=-5))  # Lima
+    # Lima
+    tz = timezone(timedelta(hours=-5))
     today = datetime.now(tz).date()
     tomorrow = today + timedelta(days=1)
 
@@ -118,9 +79,66 @@ async def select_date_range_today_to_tomorrow(page):
     # end: tomorrow
     await _click_day_by_date(panel, tomorrow)
 
-    # allow table to reload after second click
-    await wait_table_refreshed(page, start_date=today, end_date=tomorrow)
+    # ✅ guarantee the range really stuck
+    await assert_range_selected(page, today, tomorrow)
 
+async def download_with_range_guard(page, reselect=None, timeout=20000):
+    """
+    Clicks the download button and captures the file.
+    - Validates that the range input contains 2 dates (MM/DD/YYYY - MM/DD/YYYY).
+    - Supports different button variants.
+    - Retries once if the site shows the 'No se ha seleccionado dos fechas' toast.
+    :param reselect: optional async callable to re-select the range on retry
+                     e.g., lambda: select_date_range_today_to_tomorrow(page)
+    """
+    async def _has_two_dates():
+        val = await (await _get_range_input(page)).input_value()
+        return bool(val and RANGE_RE.match(val)), val
+
+    # --- 1) pre-click guard -------------------------------------------------
+    ok, val = await _has_two_dates()
+    if not ok:
+        raise RuntimeError(
+            "No hay dos fechas seleccionadas; evita el toast de 'No se ha seleccionado dos fechas'. "
+            f"Valor actual del input: '{val or ''}'."
+        )
+
+    # --- 2) locate the button robustly -------------------------------------
+    download_btn = page.locator(
+        'button[title="Descargar Cotizaciones"], '
+        'button[title*="Descargar"], '
+        'button:has(.pi-download), '
+        'button:has-text("Exportar")'
+    ).first
+
+    await download_btn.wait_for(timeout=timeout)
+    # make sure it's in view even if header is sticky
+    await download_btn.scroll_into_view_if_needed()
+
+    # --- 3) click + wait for download, with one retry on toast -------------
+    async def _try_click_and_download():
+        return await click_and_download(page, lambda: download_btn.click())
+
+    async def _toast_shows_no_range():
+        # PrimeNG toasts usually are p-toastitem; match by message substring
+        toast = page.locator("p-toastitem, .p-toast-message")
+        return await toast.filter(has_text="No se ha seleccionado dos fechas").count() > 0
+
+    try:
+        return await _try_click_and_download()
+
+    except Exception:
+        # If the page complained about missing range, optionally reselect once and retry
+        if await _toast_shows_no_range():
+            if reselect is not None:
+                await reselect()  # e.g., re-open datepicker and pick both dates again
+                ok, _ = await _has_two_dates()
+                if not ok:
+                    raise RuntimeError("Re-selección de rango falló; aún no hay dos fechas.")
+                return await _try_click_and_download()
+            raise RuntimeError("El sitio mostró 'No se ha seleccionado dos fechas' tras el click.")
+        # different failure; bubble up
+        raise
 
 async def run_fast_export() -> Path:
     async with BrowserSession() as b:
@@ -142,19 +160,10 @@ async def run_fast_export() -> Path:
 
         await select_date_range_today_to_tomorrow(page)
 
-
-        print("🦗🦗")
-
-        # 2) (Optional) apply filters, login, etc. Example:
-        # await page.fill('#username', os.getenv("FAST_USER"))
-        # await page.fill('#password', os.getenv("FAST_PASS"))
-        # await page.click('button:has-text("Ingresar")')
-        # await page.wait_for_selector('#filters-ready')
-
         # 3) Trigger the export and capture the download
-        xlsx_path = await click_and_download(
-            page,
-            click_action=lambda: page.click('button:has-text("Exportar")')
+        xlsx_path = await download_with_range_guard(
+        page,
+        reselect=lambda: select_date_range_today_to_tomorrow(page)  # optional retry path
         )
         return xlsx_path
 
