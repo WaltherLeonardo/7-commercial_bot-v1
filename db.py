@@ -1,6 +1,6 @@
 # db.py
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 
 DB_URL = os.getenv("DB_URL", "sqlite:///data/cotizadores.db")
 

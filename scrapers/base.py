@@ -1,9 +1,8 @@
 # scrapers/base.py
 import os
-import asyncio
 from pathlib import Path
-from typing import Optional, Callable, Iterable
-from playwright.async_api import async_playwright, BrowserContext, Page, Download
+from typing import Optional, Iterable
+from playwright.async_api import async_playwright, BrowserContext, Page
 
 DEBUG_URL = os.getenv("DEBUG_URL", "http://localhost:9222")
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "./data/downloads"))

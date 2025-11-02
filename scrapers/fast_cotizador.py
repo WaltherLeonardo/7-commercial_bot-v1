@@ -7,12 +7,9 @@ from .base import BrowserSession, goto_and_wait_ready, click_and_download
 from sqlalchemy import create_engine
 from db import DB_URL
 from datetime import datetime, timedelta, timezone
-from hashlib import sha1
-from urllib.parse import urljoin
 import re
 
 FAST_URL = os.getenv("FAST_URL")
-day = str(datetime.now().day)  # used to click the day in the calendar
 RANGE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}\s-\s\d{2}/\d{2}/\d{4}$")
 
 async def _get_range_input(page):
